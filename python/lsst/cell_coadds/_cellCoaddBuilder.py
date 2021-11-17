@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 from abc import abstractmethod
-from typing import Iterable
+from typing import Iterable, List
 
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
@@ -29,8 +29,10 @@ import lsst.pipe.base.connectionTypes as cT
 from lsst.pipe.tasks.coaddBase import makeSkyInfo
 import lsst.sphgeom
 import lsst.utils
+
 from ._single_cell_coadd import SingleCellCoadd
 from ._multiple_cell_coadd import MultipleCellCoadd
+from ._identifiers import *
 
 __all__ = ("CoaddInCellsConnections", "CoaddInCellsConfig", "CoaddInCellsTask")
 
@@ -90,13 +92,6 @@ class CoaddInCellsConfig(pipeBase.PipelineTaskConfig,
                  "calexps": "Use calexps"},
         default="calexps"
     )
-    # Does this config even make sense? Why would anyone want cell-based coadds
-    # with edges?
-    edgeFree = pexConfig.Field(
-        doc="Make edge-free cells?",
-        dtype=bool,
-        default=True,
-    )
 
 
 class CoaddInCellsTask(pipeBase.PipelineTask):
@@ -127,35 +122,37 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
             skyMap, tractId=quantumDataId["tract"],
             patchId=quantumDataId["patch"],
         )
+        packId = quantumDataId.pack("tract_patch_band")
 
-        expList = inputs[inputs["inputType"]]
-
+        patchIdentifier = PatchIdentifiers(skymap=skyMap, tract=quantumDataId["tract"])
         # Run the warp and coaddition code
-        multipleCellCoadd = self.run(expList, skyInfo=skyInfo)
+        multipleCellCoadd = self.run(inputs, skyInfo=skyInfo)
 
         # Persist the results via the butler
         butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
 
-    def run(self, expList,
+    def run(self, inputs,
             skyInfo: pipeBase.Struct) -> MultipleCellCoadd:
         """Make coadd for all the cells
         """
+        # Should all of these computation happen in runQuantum method itself
+        # and let concrete classes implement a `run` method?
         if self.config.cellIndices:
             cellIndices = self.config.cellIndices
         else:
             cellIndices = range(skyInfo.patchInfo.getNumCells())
 
+        expList = inputs[inputs["inputType"]]
+
         cellCoadds = []
-        for cellIndex in cellIndices:
+        for cellInfo in skyInfo.patchInfo:
             # Select calexps that completely overlap with the
-            if self.config.edgeFree:
-                edgeless_calExpList = self.filter_inputs(expList, skyInfo=skyInfo, cellIndex=cellIndex)
-            else:
-                edgeless_calExpList = expList
-            if len(edgeless_calExpList) == 0:
+            bbox_list = self.select_overlaps(inputs["calexps"], cellInfo=cellInfo)
+
+            if not bbox_list:
                 continue
                 # raise pipeBase.NoWorkFound("No exposures that completely overlap are found")
-            cellCoadd = self.singleCellCoaddBuilder(edgeless_calExpList, skyInfo, cellIndex)
+            cellCoadd = self.singleCellCoaddBuilder(expList, bbox_list, cellInfo)
             cellCoadds.append(cellCoadd)
 
         inner_bbox = None  # Placeholder for now
@@ -163,7 +160,8 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
 
     @abstractmethod
     def singleCellCoaddBuilder(self, calExpList: Iterable[lsst.afw.image.ExposureF],
-                               skyInfo: pipeBase.Struct, cellIndex: int) -> SingleCellCoadd:
+                               bboxList: Iterable[lsst.geom.Box2I],
+                               cellInfo: pipeBase.Struct) -> SingleCellCoadd:
         """Build a single-cell coadd
 
         The inner and outer bounding boxes of the cell could be obtained as
@@ -184,10 +182,11 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         -------
         A `SingleCellCoadd` object
         """
-        raise NotImplementedError()
+        # raise NotImplementedError()
+        ret = SingleCellCoadd(psf=coadd_psf, inner_bbox=cellInfo.getInnerBBox(), )
 
     @staticmethod
-    def filter_inputs(explist, skyInfo, cellIndex, num_to_keep=None):
+    def select_overlaps(explist, cellInfo) -> List[lsst.geom.Box2I]:
         """Filter exposures for cell-based coadds.
 
         This methods selects from a list of exposures/warps those images that
@@ -196,36 +195,32 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         Parameters
         ----------
         explist: `list` [`ExposureF`]
-            List of exposures/warps to be coadded
-        skyInfo: `dict`
-            The skyInfo dict, must have .wcs and .bbox.
-        cellIndex: `int` or Tuple[`int`]
-            Index of the cell
-        num_to_keep: `int`, optional
-            Optionally keep this many exposures
+            List of exposures to be coadded
+        cellInfo: `dict`
+            The cellInfo dict, must have .wcs and .outerBBox.
 
         Returns
         -------
         edgeless_explist: `list` of exposures/warps to use
         """
-        cellInfo = skyInfo.patchInfo.getCellInfo(cellIndex)
-        cell_bbox = cellInfo.getOuterBBox()
-        cell_wcs = skyInfo.wcs
+        cell_bbox = cellInfo.outerBBox  # TBI
+        cell_wcs = cellInfo.wcs
         cell_corners = [cell_wcs.pixelToSky(corner.x, corner.y) for corner in cell_bbox.getCorners()]
 
-        edgeless_explist = []
+        overlapping_bbox = []
         for exp in explist:
-            calexp_bbox = exp.get(component='bbox')
-            calexp_wcs = exp.get(component='wcs')
+            calexp_bbox = exp.get(component="bbox")
+            calexp_wcs = exp.get(component="wcs")
+            # TODO: Use makeSkyPolygonFromBBox function
             calexp_corners = [calexp_wcs.pixelToSky(corner.x, corner.y) for corner in calexp_bbox.getCorners()]
             skyCell = lsst.sphgeom.ConvexPolygon([corner.getVector() for corner in cell_corners])
             skyCalexp = lsst.sphgeom.ConvexPolygon([corner.getVector() for corner in calexp_corners])
+
             if skyCell.isWithin(skyCalexp):
-                edgeless_explist.append(exp)
+                tiny_bbox_min_corner = calexp_wcs.skyToPixel(cell_wcs.pixelToSky(cell_bbox.minX, cell_bbox.minY))
+                tiny_bbox_max_corner = calexp_wcs.skyToPixel(cell_wcs.pixelToSky(cell_bbox.maxX, cell_bbox.maxY))
+                tiny_bbox = lsst.geom.Box2D(minimum=tiny_bbox_min_corner, maximum=tiny_bbox_max_corner)
+                tiny_bbox = lsst.geom.Box2I(tiny_bbox)
+                overlapping_bbox.append(tiny_bbox)
 
-        if (num_to_keep is not None) and (len(edgeless_explist) > 0):
-            ntot = len(edgeless_explist)
-            mid = ntot // 4
-            edgeless_explist = edgeless_explist[mid:mid + max(num_to_keep, ntot)]
-
-        return edgeless_explist
+        return overlapping_bbox
