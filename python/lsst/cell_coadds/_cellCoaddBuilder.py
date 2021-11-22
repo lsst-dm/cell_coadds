@@ -20,148 +20,41 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-from abc import abstractmethod
-from typing import Iterable, List
 
+import dataclasses
+from abc import ABCMeta, abstractmethod
+from typing import Iterable, List, Mapping, Optional, Tuple
+
+import lsst.geom
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
 import lsst.pipe.base.connectionTypes as cT
-from lsst.pipe.tasks.coaddBase import makeSkyInfo
 import lsst.sphgeom
 import lsst.utils
+from lsst.daf.butler import DeferredDatasetHandle
+from lsst.pipe.tasks.coaddBase import makeSkyInfo
 
-from ._single_cell_coadd import SingleCellCoadd
-from ._multiple_cell_coadd import MultipleCellCoadd
+from ._common_components import *
 from ._identifiers import *
+from ._multiple_cell_coadd import MultipleCellCoadd
+from ._single_cell_coadd import SingleCellCoadd
 
 __all__ = ("CoaddInCellsConnections", "CoaddInCellsConfig", "CoaddInCellsTask")
 
 
-class CoaddInCellsConnections(pipeBase.PipelineTaskConnections,
-                              dimensions=("tract", "patch", "band", "skymap"),
-                              defaultTemplates={"inputCoaddName": "deep",
-                                                "outputCoaddName": "deep",
-                                                "warpType": "direct"}):
-    # Since we defer loading of images, we could take in both calexp and
-    # warps as inputs. Unless, we don't want a dependency on warps existing.
-    # The type of image will be specified in CoaddInCellsConfig.
-    calexps = cT.Input(
-        doc="Input exposures to be resampled and optionally PSF-matched onto a SkyMap projection/patch",
-        name="calexp",
-        storageClass="ExposureF",
-        dimensions=("instrument", "visit", "detector"),
-        deferLoad=True,
-        multiple=True,
-    )
-    inputWarps = cT.Input(
-        doc=("Input list of warps to be assemebled i.e. stacked."
-             "WarpType (e.g. direct, psfMatched) is controlled by the warpType config parameter"),
-        name="{inputCoaddName}Coadd_{warpType}Warp",
-        storageClass="ExposureF",
-        dimensions=("tract", "patch", "skymap", "visit", "instrument"),
-        deferLoad=True,
-        multiple=True
-    )
-    skyMap = cT.Input(
-        doc="Input definition of geometry/box and projection/wcs for coadded exposures",
-        name="skyMap",
-        storageClass="SkyMap",
-        dimensions=("skymap",),
-    )
-    cellCoadd = cT.Output(
-        doc="Coadded image",
-        name="{outputCoaddName}CellCoadd",
-        storageClass="MultipleCellCoadd",
-        dimensions=("tract", "patch", "skymap", "band", "instrument")
-    )
+class SingleCellCoaddBuilder(pipeBase.Task, metaclass=ABCMeta):
+    ConfigClass = pexConfig.Config
 
-
-class CoaddInCellsConfig(pipeBase.PipelineTaskConfig,
-                         pipelineConnections=CoaddInCellsConnections):
-    """Configuration parameters for the `CoaddInCellsTask`.
-    """
-    cellIndices = pexConfig.ListField(
-        dtype=int,
-        doc="Cells to coadd; if set to an empty list, all cells are processed",
-        default=[],
-    )
-    inputType = pexConfig.ChoiceField(
-        doc="Type of input dataset",
-        dtype=str,
-        allowed={"inputWarps": "Use warps",
-                 "calexps": "Use calexps"},
-        default="calexps"
-    )
-
-
-class CoaddInCellsTask(pipeBase.PipelineTask):
-    """Perform coaddition
-    """
-
-    ConfigClass = CoaddInCellsConfig
-    _DefaultName = "cellCoadd"
-
-    def runQuantum(self, butlerQC: pipeBase.ButlerQuantumContext,
-                   inputRefs: pipeBase.InputQuantizedConnection,
-                   outputRefs: pipeBase.OutputQuantizedConnection):
-        """Construct warps and then coadds
-
-        Notes
-        -----
-
-        PipelineTask (Gen3) entry point to warp. This method is analogous to
-        `runDataRef`. See lsst.pipe.tasks.makeCoaddTempExp.py for comparison.
-        """
-        # Read in the inputs via the butler
-        inputs = butlerQC.get(inputRefs)
-
-        # Process the skyMap to WCS and other useful sky information
-        skyMap = inputs["skyMap"]  # skyInfo below will contain this skyMap
-        quantumDataId = butlerQC.quantum.dataId
-        skyInfo = makeSkyInfo(
-            skyMap, tractId=quantumDataId["tract"],
-            patchId=quantumDataId["patch"],
-        )
-        packId = quantumDataId.pack("tract_patch_band")
-
-        patchIdentifier = PatchIdentifiers(skymap=skyMap, tract=quantumDataId["tract"])
-        # Run the warp and coaddition code
-        multipleCellCoadd = self.run(inputs, skyInfo=skyInfo)
-
-        # Persist the results via the butler
-        butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
-
-    def run(self, inputs,
-            skyInfo: pipeBase.Struct) -> MultipleCellCoadd:
-        """Make coadd for all the cells
-        """
-        # Should all of these computation happen in runQuantum method itself
-        # and let concrete classes implement a `run` method?
-        if self.config.cellIndices:
-            cellIndices = self.config.cellIndices
-        else:
-            cellIndices = range(skyInfo.patchInfo.getNumCells())
-
-        expList = inputs[inputs["inputType"]]
-
-        cellCoadds = []
-        for cellInfo in skyInfo.patchInfo:
-            # Select calexps that completely overlap with the
-            bbox_list = self.select_overlaps(inputs["calexps"], cellInfo=cellInfo)
-
-            if not bbox_list:
-                continue
-                # raise pipeBase.NoWorkFound("No exposures that completely overlap are found")
-            cellCoadd = self.singleCellCoaddBuilder(expList, bbox_list, cellInfo)
-            cellCoadds.append(cellCoadd)
-
-        inner_bbox = None  # Placeholder for now
-        return MultipleCellCoadd(cellCoadds, inner_bbox=inner_bbox)
+    def __init__(self, config: pexConfig.Config):
+        self.config = config
 
     @abstractmethod
-    def singleCellCoaddBuilder(self, calExpList: Iterable[lsst.afw.image.ExposureF],
-                               bboxList: Iterable[lsst.geom.Box2I],
-                               cellInfo: pipeBase.Struct) -> SingleCellCoadd:
+    def run(
+        self,
+        inputs: Mapping[ObservationIdentifiers, Tuple[DeferredDatasetHandle, lsst.geom.Box2I]],
+        cellInfo: pipeBase.Struct,
+    ) -> Struct(psf, image_planes, inputs):
+
         """Build a single-cell coadd
 
         The inner and outer bounding boxes of the cell could be obtained as
@@ -182,11 +75,163 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         -------
         A `SingleCellCoadd` object
         """
-        # raise NotImplementedError()
-        ret = SingleCellCoadd(psf=coadd_psf, inner_bbox=cellInfo.getInnerBBox(), )
+        raise NotImplementedError()
+
+
+singleCellCoaddBuilderRegistry = pexConfig.makeRegistry(doc="Registry of single cell coadd builders")
+
+
+class CoaddInCellsConnections(
+    pipeBase.PipelineTaskConnections,
+    dimensions=("tract", "patch", "band", "skymap"),
+    defaultTemplates={"inputCoaddName": "deep", "outputCoaddName": "deep", "warpType": "direct"},
+):
+    # Since we defer loading of images, we could take in both calexp and
+    # warps as inputs. Unless, we don't want a dependency on warps existing.
+    # The type of image will be specified in CoaddInCellsConfig.
+    calexps = cT.Input(
+        doc="Input exposures to be resampled and optionally PSF-matched onto a SkyMap projection/patch",
+        name="calexp",
+        storageClass="ExposureF",
+        dimensions=("instrument", "visit", "detector"),
+        deferLoad=True,
+        multiple=True,
+    )
+    inputWarps = cT.Input(
+        doc=(
+            "Input list of warps to be assemebled i.e. stacked."
+            "WarpType (e.g. direct, psfMatched) is controlled by the warpType config parameter"
+        ),
+        name="{inputCoaddName}Coadd_{warpType}Warp",
+        storageClass="ExposureF",
+        dimensions=("tract", "patch", "skymap", "visit", "instrument"),
+        deferLoad=True,
+        multiple=True,
+    )
+    skyMap = cT.Input(
+        doc="Input definition of geometry/box and projection/wcs for coadded exposures",
+        name="skyMap",
+        storageClass="SkyMap",
+        dimensions=("skymap",),
+    )
+    cellCoadd = cT.Output(
+        doc="Coadded image",
+        name="{outputCoaddName}CellCoadd",
+        storageClass="MultipleCellCoadd",
+        dimensions=("tract", "patch", "skymap", "band", "instrument"),
+    )
+
+
+class CoaddInCellsConfig(pipeBase.PipelineTaskConfig, pipelineConnections=CoaddInCellsConnections):
+    """Configuration parameters for the `CoaddInCellsTask`."""
+
+    cellIndices = pexConfig.ListField(
+        dtype=int,
+        doc="Cells to coadd; if set to an empty list, all cells are processed",
+        default=[],
+    )
+    inputType = pexConfig.ChoiceField(
+        doc="Type of input dataset",
+        dtype=str,
+        allowed={"inputWarps": "Use warps", "calexps": "Use calexps"},
+        default="calexps",
+    )
+
+    singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(doc="", default=None, optional=True)
+
+
+class CoaddInCellsTask(pipeBase.PipelineTask):
+    """Perform coaddition"""
+
+    ConfigClass = CoaddInCellsConfig
+    _DefaultName = "cellCoadd"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.makeSubtask(name="singleCellCoaddBuilder")
+
+    def runQuantum(
+        self,
+        butlerQC: pipeBase.ButlerQuantumContext,
+        inputRefs: pipeBase.InputQuantizedConnection,
+        outputRefs: pipeBase.OutputQuantizedConnection,
+    ):
+        """Construct warps and then coadds
+
+        Notes
+        -----
+
+        PipelineTask (Gen3) entry point to warp. This method is analogous to
+        `runDataRef`. See lsst.pipe.tasks.makeCoaddTempExp.py for comparison.
+        """
+        # Read in the inputs via the butler
+        inputs = butlerQC.get(inputRefs)
+
+        # Process the skyMap to WCS and other useful sky information
+        skyMap = inputs["skyMap"]  # skyInfo below will contain this skyMap
+        quantumDataId = butlerQC.quantum.dataId
+        skyInfo = makeSkyInfo(
+            skyMap,
+            tractId=quantumDataId["tract"],
+            patchId=quantumDataId["patch"],
+        )
+        packId = quantumDataId.pack("tract_patch_band")
+
+        patchIdentifier = PatchIdentifiers(skymap=skyMap, tract=quantumDataId["tract"])
+        # Run the warp and coaddition code
+        multipleCellCoadd = self.run(inputs, skyInfo=skyInfo, quantumDataId=quantumDataId)
+
+        # Persist the results via the butler
+        butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
+
+    def run(self, inputs, skyInfo: pipeBase.Struct, quantumDataId) -> MultipleCellCoadd:
+        """Make coadd for all the cells"""
+        # Should all of these computation happen in runQuantum method itself
+        # and let concrete classes implement a `run` method?
+        if self.config.cellIndices:
+            cellIndices = self.config.cellIndices
+        else:
+            cellIndices = range(skyInfo.patchInfo.getNumCells())
+
+        expList = inputs[inputs["inputType"]]
+
+        cellCoadds = []
+        common = CommonComponents(
+            units=CoaddUnits.nJy,
+            wcs=skyInfo.patchInfo.wcs,
+            band=quantumDataId["band"],
+            identifiers=PatchIdentifiers.from_data_id(quantumDataId),
+        )
+
+        for cellInfo in skyInfo.patchInfo:
+            # Select calexps that completely overlap with the
+            bbox_list = self._select_overlaps(inputs["calexps"], cellInfo=cellInfo)
+
+            if not bbox_list:
+                continue
+                # raise pipeBase.NoWorkFound("No exposures that completely overlap are found")
+            inputs = {
+                ObservationIdentifiers.from_data_id(handle.ref.dataId): (handle, bbox)
+                for handle, bbox in zip(inputs["calexps"], bboxList)
+            }
+            result = self.singleCellCoaddBuilder.run(inputs, cellInfo)
+            cellCoadd = SingleCellCoadd(
+                outer=result.image_planes,
+                psf=result.psf,
+                inner_bbox=cellInfo.innerBBox,
+                inputs=result.inputs,
+                common=common,
+                identifiers=CellIdentifiers(
+                    cell=GridIdentifiers.from_info(cellInfo), **common.identifiers.asdict()
+                ),
+            )
+            cellCoadds.append(cellCoadd)
+
+        inner_bbox = None  # Placeholder for now
+        return MultipleCellCoadd(cellCoadds, inner_bbox=inner_bbox)
 
     @staticmethod
-    def select_overlaps(explist, cellInfo) -> List[lsst.geom.Box2I]:
+    def _select_overlaps(explist, cellInfo) -> List[lsst.geom.Box2I]:
         """Filter exposures for cell-based coadds.
 
         This methods selects from a list of exposures/warps those images that
@@ -212,13 +257,19 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
             calexp_bbox = exp.get(component="bbox")
             calexp_wcs = exp.get(component="wcs")
             # TODO: Use makeSkyPolygonFromBBox function
-            calexp_corners = [calexp_wcs.pixelToSky(corner.x, corner.y) for corner in calexp_bbox.getCorners()]
+            calexp_corners = [
+                calexp_wcs.pixelToSky(corner.x, corner.y) for corner in calexp_bbox.getCorners()
+            ]
             skyCell = lsst.sphgeom.ConvexPolygon([corner.getVector() for corner in cell_corners])
             skyCalexp = lsst.sphgeom.ConvexPolygon([corner.getVector() for corner in calexp_corners])
 
             if skyCell.isWithin(skyCalexp):
-                tiny_bbox_min_corner = calexp_wcs.skyToPixel(cell_wcs.pixelToSky(cell_bbox.minX, cell_bbox.minY))
-                tiny_bbox_max_corner = calexp_wcs.skyToPixel(cell_wcs.pixelToSky(cell_bbox.maxX, cell_bbox.maxY))
+                tiny_bbox_min_corner = calexp_wcs.skyToPixel(
+                    cell_wcs.pixelToSky(cell_bbox.minX, cell_bbox.minY)
+                )
+                tiny_bbox_max_corner = calexp_wcs.skyToPixel(
+                    cell_wcs.pixelToSky(cell_bbox.maxX, cell_bbox.maxY)
+                )
                 tiny_bbox = lsst.geom.Box2D(minimum=tiny_bbox_min_corner, maximum=tiny_bbox_max_corner)
                 tiny_bbox = lsst.geom.Box2I(tiny_bbox)
                 overlapping_bbox.append(tiny_bbox)
