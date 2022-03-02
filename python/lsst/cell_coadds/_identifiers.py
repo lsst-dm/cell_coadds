@@ -37,6 +37,7 @@ from lsst.skymap import CellInfo, Index2D, PatchInfo
 if TYPE_CHECKING:
     from lsst.daf.butler import DataCoordinate
 
+# TODO: Implement a way to unpack these as dicts
 
 @dataclass(frozen=True)
 class GridIdentifiers:

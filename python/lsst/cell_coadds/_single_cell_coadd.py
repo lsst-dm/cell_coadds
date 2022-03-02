@@ -73,9 +73,9 @@ class SingleCellCoadd(CommonComponentsProperties):
         common: CommonComponents,
         identifiers: CellIdentifiers,
     ):
-        assert outer.bbox.contains(
+        assert outer.getBBox().contains(
             inner_bbox
-        ), f"Cell inner bbox {inner_bbox} is not contained by outer bbox {outer.bbox}."
+        ), f"Cell inner bbox {inner_bbox} is not contained by outer bbox {outer.getBBox()}."
         self._outer = outer
         self._psf = psf
         self._inner_bbox = inner_bbox

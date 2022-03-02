@@ -21,9 +21,8 @@
 
 from __future__ import annotations
 
-import dataclasses
 from abc import ABCMeta, abstractmethod
-from typing import Iterable, List, Mapping, Optional, Tuple
+from typing import Iterable, Mapping, Tuple
 
 import lsst.geom
 import lsst.pex.config as pexConfig
@@ -34,26 +33,31 @@ import lsst.utils
 from lsst.daf.butler import DeferredDatasetHandle
 from lsst.pipe.tasks.coaddBase import makeSkyInfo
 
+from ._cell_coadds import UniformGrid
 from ._common_components import *
 from ._identifiers import *
 from ._multiple_cell_coadd import MultipleCellCoadd
 from ._single_cell_coadd import SingleCellCoadd
 
-__all__ = ("CoaddInCellsConnections", "CoaddInCellsConfig", "CoaddInCellsTask")
+#from .singleCellCoaddBuilder import SCCBuilder
+
+__all__ = ("CoaddInCellsConnections", "CoaddInCellsConfig", "CoaddInCellsTask", "SingleCellCoaddBuilder")
 
 
 class SingleCellCoaddBuilder(pipeBase.Task, metaclass=ABCMeta):
     ConfigClass = pexConfig.Config
+    _DefaultName = "singleCellCoaddBuilder"
 
-    def __init__(self, config: pexConfig.Config):
+    def __init__(self, name: str, config: pexConfig.Config, **kwargs):
         self.config = config
+        super().__init__(config=config)
 
     @abstractmethod
     def run(
         self,
         inputs: Mapping[ObservationIdentifiers, Tuple[DeferredDatasetHandle, lsst.geom.Box2I]],
         cellInfo: pipeBase.Struct,
-    ) -> Struct(psf, image_planes, inputs):
+    ) -> pipeBase.Struct[psf, image_planes, inputs]:
 
         """Build a single-cell coadd
 
@@ -64,7 +68,7 @@ class SingleCellCoaddBuilder(pipeBase.Task, metaclass=ABCMeta):
 
         Parameters
         ----------
-        calExpList : List[`lsst.afw.image.Exposure`]
+        calExpList : Iterable[`lsst.afw.image.Exposure`]
             A list of input images to coadd.
         skyInfo : `lsst.pipe.base.Struct`
             Struct with geommetric information about the patches and cells.
@@ -77,9 +81,10 @@ class SingleCellCoaddBuilder(pipeBase.Task, metaclass=ABCMeta):
         """
         raise NotImplementedError()
 
+    registry = pexConfig.makeRegistry(doc="Internal registry")
 
 singleCellCoaddBuilderRegistry = pexConfig.makeRegistry(doc="Registry of single cell coadd builders")
-
+#singleCellCoaddBuilderRegistry.register("singleCellCoaddBuilder", SCCBuilder)
 
 class CoaddInCellsConnections(
     pipeBase.PipelineTaskConnections,
@@ -97,29 +102,29 @@ class CoaddInCellsConnections(
         deferLoad=True,
         multiple=True,
     )
-    inputWarps = cT.Input(
-        doc=(
-            "Input list of warps to be assemebled i.e. stacked."
-            "WarpType (e.g. direct, psfMatched) is controlled by the warpType config parameter"
-        ),
-        name="{inputCoaddName}Coadd_{warpType}Warp",
-        storageClass="ExposureF",
-        dimensions=("tract", "patch", "skymap", "visit", "instrument"),
-        deferLoad=True,
-        multiple=True,
-    )
+    # inputWarps = cT.Input(
+    #    doc=(
+    #        "Input list of warps to be assemebled i.e. stacked."
+    #        "WarpType (e.g. direct, psfMatched) is controlled by the warpType config parameter"
+    #    ),
+    #    name="{inputCoaddName}Coadd_{warpType}Warp",
+    #    storageClass="ExposureF",
+    #    dimensions=("tract", "patch", "skymap", "visit", "instrument"),
+    #    deferLoad=True,
+    #    multiple=True,
+    # )
     skyMap = cT.Input(
         doc="Input definition of geometry/box and projection/wcs for coadded exposures",
         name="skyMap",
         storageClass="SkyMap",
         dimensions=("skymap",),
     )
-    cellCoadd = cT.Output(
-        doc="Coadded image",
-        name="{outputCoaddName}CellCoadd",
-        storageClass="MultipleCellCoadd",
-        dimensions=("tract", "patch", "skymap", "band", "instrument"),
-    )
+    #cellCoadd = cT.Output(
+    #    doc="Coadded image",
+    #    name="{outputCoaddName}CellCoadd",
+    #    storageClass="MultipleCellCoadd",
+    #    dimensions=("tract", "patch", "skymap", "band", "instrument"),
+    #)
 
 
 class CoaddInCellsConfig(pipeBase.PipelineTaskConfig, pipelineConnections=CoaddInCellsConnections):
@@ -137,8 +142,9 @@ class CoaddInCellsConfig(pipeBase.PipelineTaskConfig, pipelineConnections=CoaddI
         default="calexps",
     )
 
-    singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(doc="", default=None, optional=True)
-
+    singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(doc="", default="sccBuilder", optional=True)
+    #singleCellCoaddBuilder = pexConfig.ConfigurableField(doc="Concrete", target=SingleCellCoaddBuilder,
+    #                                                     ConfigClass=SingleCellCoaddBuilder.ConfigClass)
 
 class CoaddInCellsTask(pipeBase.PipelineTask):
     """Perform coaddition"""
@@ -148,6 +154,7 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # singleCellCoaddBuilder: pipeBase.Task
         self.makeSubtask(name="singleCellCoaddBuilder")
 
     def runQuantum(
@@ -165,35 +172,51 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         `runDataRef`. See lsst.pipe.tasks.makeCoaddTempExp.py for comparison.
         """
         # Read in the inputs via the butler
+        import pdb; pdb.set_trace()
         inputs = butlerQC.get(inputRefs)
-
         # Process the skyMap to WCS and other useful sky information
-        skyMap = inputs["skyMap"]  # skyInfo below will contain this skyMap
+        skyMap0 = inputs["skyMap"]  # skyInfo below will contain this skyMap
+        if not skyMap0.config.tractBuilder.name == "cells":
+            # The method below is a hack
+            # It should throw an exception
+            skyMap = self._convert_skyMaps(skyMap0)
+        else:
+            skyMap = skyMap0
         quantumDataId = butlerQC.quantum.dataId
         skyInfo = makeSkyInfo(
             skyMap,
             tractId=quantumDataId["tract"],
             patchId=quantumDataId["patch"],
         )
+        skyInfo0 = makeSkyInfo(
+            skyMap0,
+            tractId=quantumDataId["tract"],
+            patchId=quantumDataId["patch"],
+        )
         packId = quantumDataId.pack("tract_patch_band")
 
-        patchIdentifier = PatchIdentifiers(skymap=skyMap, tract=quantumDataId["tract"])
+        patchIdentifier = PatchIdentifiers(skymap=skyMap, tract=quantumDataId["tract"], patch=quantumDataId["patch"])
         # Run the warp and coaddition code
-        multipleCellCoadd = self.run(inputs, skyInfo=skyInfo, quantumDataId=quantumDataId)
+        multipleCellCoadd = self.run(inputs, skyInfo=skyInfo, quantumDataId=quantumDataId, skyInfo0=skyInfo0)
 
         # Persist the results via the butler
-        butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
+        # TODO: We cannot persist this until DM-32691 is done.
+        # butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
+        import pdb; pdb.set_trace()
+        return multipleCellCoadd
 
-    def run(self, inputs, skyInfo: pipeBase.Struct, quantumDataId) -> MultipleCellCoadd:
+    def run(self, inputs, skyInfo: pipeBase.Struct, quantumDataId, skyInfo0=None) -> MultipleCellCoadd:
         """Make coadd for all the cells"""
         # Should all of these computation happen in runQuantum method itself
         # and let concrete classes implement a `run` method?
         if self.config.cellIndices:
-            cellIndices = self.config.cellIndices
+            nx, ny = self.config.cellIndices
         else:
-            cellIndices = range(skyInfo.patchInfo.getNumCells())
+            nx, ny = skyInfo.patchInfo.getNumCells()
 
-        expList = inputs[inputs["inputType"]]
+        cellIndices = range(nx)
+
+        expList = inputs[self.config.inputType]
 
         cellCoadds = []
         common = CommonComponents(
@@ -205,33 +228,41 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
 
         for cellInfo in skyInfo.patchInfo:
             # Select calexps that completely overlap with the
-            bbox_list = self._select_overlaps(inputs["calexps"], cellInfo=cellInfo)
+            try:
+                bbox_list = self._select_overlaps(inputs["calexps"], cellInfo=cellInfo, skyInfo=skyInfo0)
+            except KeyError:
+                import pdb; pdb.set_trace()
 
             if not bbox_list:
                 continue
                 # raise pipeBase.NoWorkFound("No exposures that completely overlap are found")
-            inputs = {
+            scc_inputs = {
                 ObservationIdentifiers.from_data_id(handle.ref.dataId): (handle, bbox)
-                for handle, bbox in zip(inputs["calexps"], bboxList)
+                for handle, bbox in zip(inputs["calexps"], bbox_list)
             }
-            result = self.singleCellCoaddBuilder.run(inputs, cellInfo)
+            result = self.singleCellCoaddBuilder.run(scc_inputs, cellInfo)
             cellCoadd = SingleCellCoadd(
                 outer=result.image_planes,
                 psf=result.psf,
-                inner_bbox=cellInfo.innerBBox,
+                inner_bbox=cellInfo.inner_bbox,
                 inputs=result.inputs,
                 common=common,
                 identifiers=CellIdentifiers(
-                    cell=GridIdentifiers.from_info(cellInfo), **common.identifiers.asdict()
+                    cell=GridIdentifiers.from_info(cellInfo),
+                    skymap=common.identifiers.skymap,
+                    tract=common.identifiers.tract,
+                    patch=common.identifiers.patch,
+                    #  **common.identifiers.asdict()  # Desired
                 ),
             )
             cellCoadds.append(cellCoadd)
 
         inner_bbox = None  # Placeholder for now
-        return MultipleCellCoadd(cellCoadds, inner_bbox=inner_bbox)
+        grid = UniformGrid(skyInfo.patchInfo.inner_bbox, cellInfo.outer_bbox.getDimensions())
+        return MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=skyInfo.outer_bbox, inner_bbox=inner_bbox, common=common, psf_image_size=41)
 
     @staticmethod
-    def _select_overlaps(explist, cellInfo) -> List[lsst.geom.Box2I]:
+    def _select_overlaps(explist, cellInfo, skyInfo=None) -> List[lsst.geom.Box2I]:
         """Filter exposures for cell-based coadds.
 
         This methods selects from a list of exposures/warps those images that
@@ -248,7 +279,7 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         -------
         edgeless_explist: `list` of exposures/warps to use
         """
-        cell_bbox = cellInfo.outerBBox  # TBI
+        cell_bbox = cellInfo.outer_bbox
         cell_wcs = cellInfo.wcs
         cell_corners = [cell_wcs.pixelToSky(corner.x, corner.y) for corner in cell_bbox.getCorners()]
 
@@ -263,6 +294,9 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
             skyCell = lsst.sphgeom.ConvexPolygon([corner.getVector() for corner in cell_corners])
             skyCalexp = lsst.sphgeom.ConvexPolygon([corner.getVector() for corner in calexp_corners])
 
+            if skyInfo:
+                if skyInfo.tractInfo.outer_sky_polygon.contains(skyCalexp):
+                    pass
             if skyCell.isWithin(skyCalexp):
                 tiny_bbox_min_corner = calexp_wcs.skyToPixel(
                     cell_wcs.pixelToSky(cell_bbox.minX, cell_bbox.minY)
@@ -275,3 +309,12 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
                 overlapping_bbox.append(tiny_bbox)
 
         return overlapping_bbox
+
+    @staticmethod
+    def _convert_skyMaps(skyMap):
+        """Hacky method to change the tractBuilder"""
+        import copy
+        newConfig = copy.copy(skyMap.config)
+        newConfig.tractBuilder.name = "cells"
+        newSkyMap = skyMap.__class__(newConfig)
+        return newSkyMap
