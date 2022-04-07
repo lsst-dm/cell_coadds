@@ -172,7 +172,6 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         `runDataRef`. See lsst.pipe.tasks.makeCoaddTempExp.py for comparison.
         """
         # Read in the inputs via the butler
-        import pdb; pdb.set_trace()
         inputs = butlerQC.get(inputRefs)
         # Process the skyMap to WCS and other useful sky information
         skyMap0 = inputs["skyMap"]  # skyInfo below will contain this skyMap
@@ -202,7 +201,6 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         # Persist the results via the butler
         # TODO: We cannot persist this until DM-32691 is done.
         # butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
-        import pdb; pdb.set_trace()
         return multipleCellCoadd
 
     def run(self, inputs, skyInfo: pipeBase.Struct, quantumDataId, skyInfo0=None) -> MultipleCellCoadd:
@@ -232,6 +230,7 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
                 bbox_list = self._select_overlaps(inputs["calexps"], cellInfo=cellInfo, skyInfo=skyInfo0)
             except KeyError:
                 import pdb; pdb.set_trace()
+                continue
 
             if not bbox_list:
                 continue
@@ -240,6 +239,9 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
                 ObservationIdentifiers.from_data_id(handle.ref.dataId): (handle, bbox)
                 for handle, bbox in zip(inputs["calexps"], bbox_list)
             }
+            if len(scc_inputs) == 0:
+                continue
+
             result = self.singleCellCoaddBuilder.run(scc_inputs, cellInfo)
             cellCoadd = SingleCellCoadd(
                 outer=result.image_planes,
@@ -259,7 +261,8 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
 
         inner_bbox = None  # Placeholder for now
         grid = UniformGrid(skyInfo.patchInfo.inner_bbox, cellInfo.outer_bbox.getDimensions())
-        return MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=skyInfo.outer_bbox, inner_bbox=inner_bbox, common=common, psf_image_size=41)
+        return MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=skyInfo.bbox,
+                                 inner_bbox=inner_bbox, common=common, psf_image_size=41)
 
     @staticmethod
     def _select_overlaps(explist, cellInfo, skyInfo=None) -> List[lsst.geom.Box2I]:
