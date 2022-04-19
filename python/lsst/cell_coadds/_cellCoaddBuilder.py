@@ -28,12 +28,13 @@ import lsst.geom
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
 import lsst.pipe.base.connectionTypes as cT
+from lsst.skymap import Index2D
 import lsst.sphgeom
 import lsst.utils
 from lsst.daf.butler import DeferredDatasetHandle
 from lsst.pipe.tasks.coaddBase import makeSkyInfo
 
-from ._cell_coadds import UniformGrid
+from ._cell_coadds import GridContainerBuilder, UniformGrid
 from ._common_components import *
 from ._identifiers import *
 from ._multiple_cell_coadd import MultipleCellCoadd
@@ -257,10 +258,20 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
                     #  **common.identifiers.asdict()  # Desired
                 ),
             )
+            # import pdb; pdb.set_trace()
             cellCoadds.append(cellCoadd)
+            # break  ## HACK: Remove it
 
         inner_bbox = None  # Placeholder for now
-        grid = UniformGrid(skyInfo.patchInfo.inner_bbox, cellInfo.outer_bbox.getDimensions())
+        grid = UniformGrid(cellInfo.inner_bbox, cellInfo.inner_bbox.getDimensions())
+        builder = GridContainerBuilder(grid.shape)
+        import pdb; pdb.set_trace()
+        builder[Index2D(x=0, y=0)] = cellCoadd
+        _mCellCoadd = builder.finish()
+        return _mCellCoadd
+        innerBBox = skyInfo.patchInfo.inner_bbox.dilatedBy(150)  # dilatedBy is HACK
+        # grid = UniformGrid(innerBBox, cellInfo.inner_bbox.getDimensions()) ## Original, outer-> inner
+        _mCellCoadd = MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=cellInfo.outer_bbox.getDimensions(), inner_bbox=inner_bbox, common=common, psf_image_size=Extent2I(41,41))
         return MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=skyInfo.bbox,
                                  inner_bbox=inner_bbox, common=common, psf_image_size=41)
 
