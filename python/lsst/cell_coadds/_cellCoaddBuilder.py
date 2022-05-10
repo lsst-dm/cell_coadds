@@ -261,7 +261,7 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
             )
             # import pdb; pdb.set_trace()
             cellCoadds.append(cellCoadd)
-            break  ## HACK: Remove it
+            # break  ## HACK: Remove it
 
         inner_bbox = None  # Placeholder for now
         innerBBox = skyInfo.patchInfo.inner_bbox.dilatedBy(cellInfo.inner_bbox.getDimensions())  # dilatedBy is HACK
@@ -269,11 +269,11 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         grid = UniformGrid(innerBBox, innerBBox.getDimensions())
         builder = GridContainerBuilder(grid.shape)
         import pdb; pdb.set_trace()
-        builder[Index2D(x=0, y=0)] = cellCoadd
-        _mCellCoadd = builder.finish()
-        return _mCellCoadd
-        innerBBox = skyInfo.patchInfo.inner_bbox.dilatedBy(cellInfo.inner_bbox.getDimensions())  # dilatedBy is HACK
-        # grid = UniformGrid(innerBBox, cellInfo.inner_bbox.getDimensions()) ## Original, outer-> inner
+        #builder[Index2D(x=0, y=0)] = cellCoadd
+        #_mCellCoadd = builder.finish()
+        #return _mCellCoadd
+        #innerBBox = skyInfo.patchInfo.inner_bbox.dilatedBy(cellInfo.inner_bbox.getDimensions())  # dilatedBy is HACK
+        grid = UniformGrid(innerBBox, cellInfo.inner_bbox.getDimensions()) ## Original, outer-> inner
         _mCellCoadd = MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=cellInfo.outer_bbox.getDimensions(), inner_bbox=inner_bbox, common=common, psf_image_size=Extent2I(41,41))
         return MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=skyInfo.bbox,
                                  inner_bbox=inner_bbox, common=common, psf_image_size=41)
