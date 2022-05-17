@@ -316,12 +316,3 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
                 overlapping_bbox.append(tiny_bbox)
 
         return overlapping_bbox
-
-    @staticmethod
-    def _convert_skyMaps(skyMap):
-        """Hacky method to change the tractBuilder"""
-        import copy
-        newConfig = copy.copy(skyMap.config)
-        newConfig.tractBuilder.name = "cells"
-        newSkyMap = skyMap.__class__(newConfig)
-        return newSkyMap
