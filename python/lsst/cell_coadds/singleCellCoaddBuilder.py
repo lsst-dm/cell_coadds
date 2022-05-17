@@ -33,7 +33,7 @@ class SCCBuilder(SingleCellCoaddBuilder):
             exps=[_v[0].get(bbox=_v[1]) for _k, _v in inputs.items()],
             coadd_wcs=cellInfo.wcs,
             coadd_bbox=cellInfo.outer_bbox,
-            psf_dims=(41, 41), # self.config.psf_dims,
+            psf_dims=(self.config.psf_dimensions, self.config.psf_dimensions),
             rng=np.random.RandomState(12345),
             remove_poisson=True,  # no object poisson noise in sims
         )
@@ -49,7 +49,7 @@ class SCCBuilder(SingleCellCoaddBuilder):
                                inputs=inputs)
 
     @staticmethod
-    def get_noise_exp(exp, rng):
+    def get_noise_exp(exp: afwImage.Exposure, rng):
         """Get a noise image based on the input exposure
 
         TODO gain correct separately in each amplifier, currently

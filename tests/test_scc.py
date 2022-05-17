@@ -1,7 +1,7 @@
 # Test runner
 # NOT a unit test
 
-import skyproj
+# import skyproj
 import healsparse as hsp
 import healpy
 import sys
