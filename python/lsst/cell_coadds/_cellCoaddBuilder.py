@@ -186,12 +186,6 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
             patchId=quantumDataId["patch"],
         )
 
-        packId = quantumDataId.pack("tract_patch_band")
-
-        patchIdentifier = PatchIdentifiers(skymap=skyMap,
-                                           tract=quantumDataId["tract"],
-                                           patch=quantumDataId["patch"],
-                                           band=quantumDataId["band"])
         # Run the warp and coaddition code
         multipleCellCoadd = self.run(inputs, skyInfo=skyInfo, quantumDataId=quantumDataId)
 
