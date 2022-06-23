@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Mapping, Tuple
 
 import lsst.afw.image as afwImage
+from lsst.daf.butler import DeferredDatasetHandle
 import lsst.geom as geom
 import lsst.pipe.base as pipeBase
 import lsst.pipe.base.connectionTypes as cT
@@ -13,14 +14,15 @@ import lsst.utils
 import numpy as np
 from descwl_coadd import make_coadd_obs
 #from lsst.cell_coadds import SingleCellCoaddBuilder
-from ._cellCoaddBuilder import SingleCellCoaddBuilder, singleCellCoaddBuilderRegistry
+from ._cellCoaddBuilder import SingleCellCoaddBuilderTask, singleCellCoaddBuilderRegistry
+from ._identifiers import ObservationIdentifiers
 from ._image_planes import OwnedImagePlanes
 from lsst.pex.config import Field, registerConfigurable
 from lsst.pipe.tasks.coaddBase import makeSkyInfo
 
 
 @registerConfigurable("sccBuilder", singleCellCoaddBuilderRegistry)
-class SCCBuilder(SingleCellCoaddBuilder):
+class SCCBuilder(SingleCellCoaddBuilderTask):
     """A concrete class to build single cell coadds"""
 
     def run(

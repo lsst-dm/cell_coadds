@@ -42,10 +42,12 @@ from ._multiple_cell_coadd import MultipleCellCoadd
 from ._single_cell_coadd import SingleCellCoadd
 
 
-__all__ = ("CoaddInCellsConnections", "CoaddInCellsConfig", "CoaddInCellsTask", "SingleCellCoaddBuilder")
+__all__ = ("MultipleCellsCoaddBuilderConfig", "MultipleCellsCoaddBuilderTask",
+           "SingleCellCoaddBuilderTask")  # "SingleCellCoaddBuilderConfig",
 
 
 class SingleCellCoaddBuilderConfig(pexConfig.Config):
+    """Configuration for a single-cell coadd builder."""
 
     psf_dimensions = pexConfig.Field(
         doc="Dimensions of the PSF image",
@@ -53,7 +55,8 @@ class SingleCellCoaddBuilderConfig(pexConfig.Config):
         default=41,
     )
 
-class SingleCellCoaddBuilder(pipeBase.Task, metaclass=ABCMeta):
+
+class SingleCellCoaddBuilderTask(pipeBase.Task, metaclass=ABCMeta):
     ConfigClass = SingleCellCoaddBuilderConfig
     _DefaultName = "singleCellCoaddBuilder"
 
@@ -95,14 +98,14 @@ class SingleCellCoaddBuilder(pipeBase.Task, metaclass=ABCMeta):
 singleCellCoaddBuilderRegistry = pexConfig.makeRegistry(doc="Registry of single cell coadd builders")
 
 
-class CoaddInCellsConnections(
+class MultipleCellsCoaddBuilderConnections(
     pipeBase.PipelineTaskConnections,
     dimensions=("tract", "patch", "band", "skymap"),
     defaultTemplates={"inputCoaddName": "deep", "outputCoaddName": "deep", "warpType": "direct"},
 ):
     # Since we defer loading of images, we could take in both calexp and
     # warps as inputs. Unless, we don't want a dependency on warps existing.
-    # The type of image will be specified in CoaddInCellsConfig.
+    # The type of image will be specified in MultipleCellsCoaddConfig.
     calexps = cT.Input(
         doc="Input exposures to be resampled and optionally PSF-matched onto a SkyMap projection/patch",
         name="calexp",
@@ -128,14 +131,16 @@ class CoaddInCellsConnections(
     #)
 
 
-class CoaddInCellsConfig(pipeBase.PipelineTaskConfig, pipelineConnections=CoaddInCellsConnections):
-    """Configuration parameters for the `CoaddInCellsTask`."""
+class MultipleCellsCoaddBuilderConfig(pipeBase.PipelineTaskConfig,
+                                      pipelineConnections=MultipleCellsCoaddBuilderConnections):
+    """Configuration parameters for the `MultipleCellsCoaddTask`."""
 
     cellIndices = pexConfig.ListField(
         dtype=int,
         doc="Cells to coadd; if set to an empty list, all cells are processed",
         default=[],
     )
+
     inputType = pexConfig.ChoiceField(
         doc="Type of input dataset",
         dtype=str,
@@ -143,19 +148,25 @@ class CoaddInCellsConfig(pipeBase.PipelineTaskConfig, pipelineConnections=CoaddI
         default="calexps",
     )
 
+    psf_dimensions = pexConfig.Field(
+        doc="Dimensions of the PSF image",
+        dtype=int,
+        default=41,
+    )
+
     singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(doc="", default="sccBuilder", optional=True)
 
 
-class CoaddInCellsTask(pipeBase.PipelineTask):
+class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
     """Perform coaddition"""
 
-    ConfigClass = CoaddInCellsConfig
-    _DefaultName = "cellCoadd"
+    ConfigClass = MultipleCellsCoaddBuilderConfig
+    _DefaultName = "multipleCellCoaddBuilder"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.makeSubtask(name="singleCellCoaddBuilder")
-        self.singleCellCoaddBuilder: SingleCellCoaddBuilder
+        self.singleCellCoaddBuilder: SingleCellCoaddBuilderTask
 
     def runQuantum(
         self,
@@ -163,19 +174,11 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         inputRefs: pipeBase.InputQuantizedConnection,
         outputRefs: pipeBase.OutputQuantizedConnection,
     ):
-        """Construct warps and then coadds
-
-        Notes
-        -----
-
-        PipelineTask (Gen3) entry point to warp. This method is analogous to
-        `runDataRef`. See lsst.pipe.tasks.makeCoaddTempExp.py for comparison.
-        """
-        # Read in the inputs via the butler
+        # Docstring inherited.
         inputs = butlerQC.get(inputRefs)
-        # Process the skyMap to WCS and other useful sky information
         skyMap = inputs["skyMap"]  # skyInfo below will contain this skyMap
         # Ideally, we should do this check early on.
+        # But skyMap is not available during config time.
         if not skyMap.config.tractBuilder.name == "cells":
             raise TypeError("skyMap is not a cells skyMap")
 
@@ -254,10 +257,15 @@ class CoaddInCellsTask(pipeBase.PipelineTask):
         #return _mCellCoadd
         #innerBBox = skyInfo.patchInfo.inner_bbox.dilatedBy(cellInfo.inner_bbox.getDimensions())  # dilatedBy is HACK
         grid = UniformGrid(innerBBox, cellInfo.inner_bbox.getDimensions()) ## Original, outer-> inner
-        _mCellCoadd = MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=cellInfo.outer_bbox.getDimensions(), inner_bbox=inner_bbox, common=common, psf_image_size=lsst.geom.Extent2I(41,41))
+        _mCellCoadd = MultipleCellCoadd(cellCoadds,
+                                        grid=grid,
+                                        outer_cell_size=cellInfo.outer_bbox.getDimensions(),
+                                        inner_bbox=inner_bbox,
+                                        common=common,
+                                        psf_image_size=lsst.geom.Extent2I(self.config.psf_dimensions,
+                                                                          self.config.psf_dimensions),
+                                        )
         return _mCellCoadd
-        #return MultipleCellCoadd(cellCoadds, grid=grid, outer_cell_size=skyInfo.bbox,
-        #                         inner_bbox=inner_bbox, common=common, psf_image_size=41)
 
     @staticmethod
     def _select_overlaps(explist: Iterable[DeferredDatasetHandle],
