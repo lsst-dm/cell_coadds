@@ -12,7 +12,10 @@ import lsst.pipe.base.connectionTypes as cT
 import lsst.sphgeom
 import lsst.utils
 import numpy as np
-from descwl_coadd import make_coadd_obs
+try:
+    from descwl_coadd import make_coadd_obs
+except ImportError:
+    pass
 #from lsst.cell_coadds import SingleCellCoaddBuilder
 from ._cellCoaddBuilder import SingleCellCoaddBuilderTask, singleCellCoaddBuilderRegistry
 from ._identifiers import ObservationIdentifiers
