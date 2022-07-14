@@ -5,23 +5,21 @@ from __future__ import annotations
 from typing import Mapping, Tuple
 
 import lsst.afw.image as afwImage
-from lsst.daf.butler import DeferredDatasetHandle
 import lsst.geom as geom
 import lsst.pipe.base as pipeBase
-import lsst.pipe.base.connectionTypes as cT
-import lsst.sphgeom
-import lsst.utils
 import numpy as np
+from lsst.daf.butler import DeferredDatasetHandle
+
 try:
     from descwl_coadd import make_coadd_obs
 except ImportError:
     pass
-#from lsst.cell_coadds import SingleCellCoaddBuilder
+from lsst.pex.config import registerConfigurable
+
+# from lsst.cell_coadds import SingleCellCoaddBuilder
 from ._cellCoaddBuilder import SingleCellCoaddBuilderTask, singleCellCoaddBuilderRegistry
 from ._identifiers import ObservationIdentifiers
 from ._image_planes import OwnedImagePlanes
-from lsst.pex.config import Field, registerConfigurable
-from lsst.pipe.tasks.coaddBase import makeSkyInfo
 
 
 @registerConfigurable("sccBuilder", singleCellCoaddBuilderRegistry)
@@ -45,13 +43,16 @@ class SCCBuilder(SingleCellCoaddBuilderTask):
 
         # TODO learn how to save the noise exp as well
         center = coadd_obs.coadd_exp.psf.getAveragePosition()
-        image_planes = OwnedImagePlanes(image=coadd_obs.coadd_exp.image,
-                                        mask=coadd_obs.coadd_exp.mask,
-                                        variance=coadd_obs.coadd_exp.variance,
-                                        mask_fractions={})
-        return pipeBase.Struct(image_planes=image_planes,
-                               psf=coadd_obs.coadd_exp.psf.computeImage(center),
-                               inputs=inputs)
+        image_planes = OwnedImagePlanes(
+            image=coadd_obs.coadd_exp.image,
+            mask=coadd_obs.coadd_exp.mask,
+            variance=coadd_obs.coadd_exp.variance,
+            noise_realizations=(coadd_obs.coadd_noise_exp.image,),
+            mask_fractions={},
+        )
+        return pipeBase.Struct(
+            image_planes=image_planes, psf=coadd_obs.coadd_exp.psf.computeImage(center), inputs=inputs
+        )
 
     @staticmethod
     def get_noise_exp(exp: afwImage.Exposure, rng):
