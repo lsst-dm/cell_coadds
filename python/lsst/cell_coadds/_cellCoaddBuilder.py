@@ -237,6 +237,9 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
         multipleCellCoadd = self.run(
             inputs[self.config.inputType], skyInfo=skyInfo, quantumDataId=quantumDataId
         )
+        # import pickle
+        # with open("/project/kannawad/multipleCellCoadd_tract3828_patch19_bandi.pkl", "rb") as fp:  # noqa: W505, E501
+        #     multipleCellCoadd = pickle.load(fp)
 
         # Persist the results via the butler
         butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
