@@ -42,8 +42,8 @@ from ._multiple_cell_coadd import MultipleCellCoadd
 from ._single_cell_coadd import SingleCellCoadd
 
 
-__all__ = ("MultipleCellsCoaddBuilderConfig", "MultipleCellsCoaddBuilderTask",
-           "SingleCellCoaddBuilderTask")  # "SingleCellCoaddBuilderConfig",
+__all__ = ("MultipleCellsCoaddBuilderConfig", "MultipleCellsCoaddBuilderConnections",
+           "MultipleCellsCoaddBuilderTask", "SingleCellCoaddBuilderConfig", "SingleCellCoaddBuilderTask")
 
 
 class SingleCellCoaddBuilderConfig(pexConfig.Config):
@@ -57,6 +57,22 @@ class SingleCellCoaddBuilderConfig(pexConfig.Config):
 
 
 class SingleCellCoaddBuilderTask(pipeBase.Task, metaclass=ABCMeta):
+    """An abstract interface for tasks building coadds in cells.
+
+    `SingleCellCoaddBuilderTask` is intended to serve as an abstract interface
+    for various concrete implementation of coaddition algorithms via its `run`
+    method. `MultipleCellCoaddBuilderTask` is the corresponding pipeline task
+    that needs to be called from the pipeline. `MultipleCellCoaddBuilderTask`
+    must contain a concrete implementation inherited from
+    `SingleCellCoaddBuilderTask` as its base class and registered with the
+    `singleCellCoaddBuilderTaskRegistry`, say using ``@registerConfigurable``
+    decorator.
+
+    See also
+    --------
+    MultipleCellCoaddBuilderTask
+
+    """
     ConfigClass = SingleCellCoaddBuilderConfig
     _DefaultName = "singleCellCoaddBuilder"
 
@@ -72,24 +88,28 @@ class SingleCellCoaddBuilderTask(pipeBase.Task, metaclass=ABCMeta):
     ) -> pipeBase.Struct['psf', 'image_planes', 'inputs']:
         """Build a single-cell coadd
 
-        The inner and outer bounding boxes of the cell could be obtained as
-        cellInfo = skyInfo.patchInfo.getCellInfo(cellIndex)
-        innerBBox = cellInfo.getInnerBBox()
-        outerBBox = cellInfo.getOuterBBox()
+        The images passed in from `MultipleCellCoaddBuilderTask` are guaranteed
+        to completely overlap the outer bounding box of the cells. Any further
+        exclusion of images based on quality assessment or other criteria
+        should be dome in this method.
 
         Parameters
         ----------
-        calExpList : Iterable[`lsst.afw.image.Exposure`]
-            A list of input images to coadd.
-        skyInfo : `lsst.pipe.base.Struct`
-            Struct with geommetric information about the patches and cells.
-        cellIndex : `int`
-            Index to identify the cell
+        inputs: `Mapping[ObservationIdentifiers, Tuple[DeferredDatasetHandle, lsst.geom.Box2I]]`
+            A mapping from `lsst.cell_coadds.ObservationIdentifiers`` to a tuple.
+            The tuple contains a `DeferredDatasetHandle` pointing to the input
+            image (calexp or warps) and a minimal bounding box that can be read
+            without loading the entire image.
+        cellInfo: `pipeBase.Struct`
+            A `pipeBase.Struct` or `collections.namedtuple` with the following
+            attributes:
+            - wcs: `lsst.afw.geom.SkyWcs`
+            - outer_bbox: `lsst.geom.Box2I`
 
         Returns
         -------
         A pipeBase.Struct object with the following fields:
-        psf, image_planes and inputs.
+        image_planes, psf and inputs.
         """
         raise NotImplementedError()
 
@@ -153,11 +173,29 @@ class MultipleCellsCoaddBuilderConfig(pipeBase.PipelineTaskConfig,
         default=41,
     )
 
-    singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(doc="", default="sccBuilder", optional=True)
+    singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(doc="Coaddition algorithm",
+                                                                      default="sccBuilder",
+                                                                      optional=True
+                                                                      )
 
 
 class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
-    """Perform coaddition"""
+    """Task to build cell-based coadded images.
+
+    This is the pipeline task that needs to be called from the pipeline. It
+    contains ``singleCellCoaddBuilder`` as a subtask which must implement a
+    concrete coaddition algorithm in its ``run`` method. The images to be
+    coadded can either be of type ``calexp`` or ``warp``, as specified in the
+    ``inputType`` configuration field. A ``skymap`` with ``cells`` tract
+    builder must be passed. For each cell to be coadded, the task will query
+    the butler for all the input images that completely overlap the cell's
+    outer bounding box and passed them to the ``run`` method of the
+    ``singleCellCoaddBuilder``.
+
+    See also
+    --------
+    SingleCellCoaddBuilderTask
+    """
 
     ConfigClass = MultipleCellsCoaddBuilderConfig
     _DefaultName = "multipleCellCoaddBuilder"
@@ -218,7 +256,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
             Cell-based coadded image.
         """
 
-        cellCoadds = []
+        cellCoadds: list[SingleCellCoadd] = []
         common = CommonComponents(
             units=CoaddUnits.nJy,
             wcs=skyInfo.patchInfo.wcs,
@@ -227,13 +265,13 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
         )
 
         for cellInfo in skyInfo.patchInfo:
-            # Select calexps that completely overlap with the
+            # Select calexps that completely overlap with the cell
             try:
                 bbox_list = self._select_overlaps(expList,
                                                   cellInfo=cellInfo,
                                                   skyInfo=skyInfo)
             except KeyError:
-                continue
+                continue  # Exception handling is likely a relic, should be removed.
 
             if not bbox_list:
                 continue
@@ -285,8 +323,8 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
 
     @staticmethod
     def _select_overlaps(explist: Iterable[DeferredDatasetHandle],
-                         cellInfo,
-                         skyInfo=None) -> Iterable[type[lsst.geom.Box2I]]:
+                         cellInfo: pipeBase.Struct,
+                         skyInfo=None) -> Iterable[lsst.geom.Box2I]:
         """Filter exposures for cell-based coadds.
 
         This methods selects from a list of exposures/warps those images that
@@ -294,15 +332,16 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
 
         Parameters
         ----------
-        explist: `list` [`ExposureF`]
-            List of exposures to be coadded
-        cellInfo: `dict`
+        explist: `list` [`~lsst.daf.butler.DeferredDatasetHandle`]
+            List of handles for exposures to be coadded
+        cellInfo: `pipeBase.Struct` or `collections.namedtuple`
             The cellInfo dict, must have .wcs and .outerBBox.
 
         Returns
         -------
-        overlapping_bbox: `list` of bounding boxes for each image in `explist`
-            that overalps the given cell.
+        overlapping_bbox: `list` [`lsst.geom.Box2I`]
+            List of bounding boxes for each image in `explist` that overlaps
+            the given cell.
         """
         cell_bbox = cellInfo.outer_bbox
         cell_wcs = cellInfo.wcs
