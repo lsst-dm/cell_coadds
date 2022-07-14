@@ -122,13 +122,12 @@ class MultipleCellsCoaddBuilderConnections(
         dimensions=("skymap",),
     )
 
-    # TODO: DM-32691 Uncomment this after we can serialize cell-based coadds.
-    #cellCoadd = cT.Output(
-    #    doc="Coadded image",
-    #    name="{outputCoaddName}CellCoadd",
-    #    storageClass="MultipleCellCoadd",
-    #    dimensions=("tract", "patch", "skymap", "band", "instrument"),
-    #)
+    cellCoadd = cT.Output(
+        doc="Coadded image",
+        name="{outputCoaddName}CellCoaddPickled",
+        storageClass="MultipleCellCoadd",
+        dimensions=("tract", "patch", "skymap", "band", "instrument"),
+    )
 
 
 class MultipleCellsCoaddBuilderConfig(pipeBase.PipelineTaskConfig,
@@ -196,8 +195,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
                                      )
 
         # Persist the results via the butler
-        # TODO: We cannot persist this until DM-32691 is done.
-        # butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
+        butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
         return multipleCellCoadd
 
     def run(self, expList: Iterable[DeferredDatasetHandle], skyInfo: pipeBase.Struct,
