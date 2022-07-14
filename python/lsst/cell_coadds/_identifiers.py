@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 # TODO: Implement a way to unpack these as dicts
 
+
 @dataclass(frozen=True)
 class GridIdentifiers:
     """Struct of identifiers that identify an element in a grid.
