@@ -175,8 +175,8 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
         outputRefs: pipeBase.OutputQuantizedConnection,
     ):
         # Docstring inherited.
-        inputs = butlerQC.get(inputRefs)
-        skyMap = inputs["skyMap"]  # skyInfo below will contain this skyMap
+        inputs: dict = butlerQC.get(inputRefs)
+        skyMap = inputs.pop("skyMap")  # skyInfo below will contain this skyMap
         # Ideally, we should do this check early on.
         # But skyMap is not available during config time.
         if not skyMap.config.tractBuilder.name == "cells":
@@ -189,18 +189,36 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
             patchId=quantumDataId["patch"],
         )
 
-        # Run the warp and coaddition code
-        multipleCellCoadd = self.run(inputs, skyInfo=skyInfo, quantumDataId=quantumDataId)
+        # Run the (warp and) coaddition code
+        multipleCellCoadd = self.run(inputs[self.config.inputType],
+                                     skyInfo=skyInfo,
+                                     quantumDataId=quantumDataId
+                                     )
 
         # Persist the results via the butler
         # TODO: We cannot persist this until DM-32691 is done.
         # butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
         return multipleCellCoadd
 
-    def run(self, inputs, skyInfo: pipeBase.Struct, quantumDataId: DataCoordinate) -> MultipleCellCoadd:
-        """Make coadd for all the cells"""
+    def run(self, expList: Iterable[DeferredDatasetHandle], skyInfo: pipeBase.Struct,
+            quantumDataId: DataCoordinate) -> MultipleCellCoadd:
+        """Run coaddition algorithm for all the cells.
 
-        expList = inputs[self.config.inputType]
+        Parameters
+        ----------
+        expList: `list` of `lsst.daf.butler.DeferredDatasetHandle`
+            An iterable of `lsst.daf.butler.DeferredDatasetHandle` objects,
+            where the objects can be either calexp or warp images.
+        skyInfo: `pipeBase.Struct`
+            Struct with geommetric information about the patches and cells.
+        quantumDataId: `DataCoordinate`
+            An immutable dataID dictionary that uniquely refers to the dataset.
+
+        Returns
+        -------
+        multipleCellCoadd: `MultipleCellCoadd`
+            Cell-based coadded image.
+        """
 
         cellCoadds = []
         common = CommonComponents(
@@ -224,7 +242,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
                 # raise pipeBase.NoWorkFound("No exposures that completely overlap are found")
             scc_inputs = {
                 ObservationIdentifiers.from_data_id(handle.ref.dataId): (handle, bbox)
-                for handle, bbox in zip(inputs[self.config.inputType], bbox_list)
+                for handle, bbox in zip(expList, bbox_list)
             }
             if len(scc_inputs) == 0:
                 continue
