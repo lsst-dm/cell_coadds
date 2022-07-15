@@ -9,6 +9,7 @@ import lsst.geom as geom
 import lsst.pipe.base as pipeBase
 import numpy as np
 from lsst.daf.butler import DeferredDatasetHandle
+from lsst.skymap import CellInfo
 
 try:
     from descwl_coadd import make_coadd_obs
@@ -29,7 +30,7 @@ class SCCBuilder(SingleCellCoaddBuilderTask):
     def run(
         self,
         inputs: Mapping[ObservationIdentifiers, Tuple[DeferredDatasetHandle, geom.Box2I]],
-        cellInfo: pipeBase.Struct,
+        cellInfo: CellInfo,
     ):
         # import pdb; pdb.set_trace()
         coadd_obs, exp_info = make_coadd_obs(
