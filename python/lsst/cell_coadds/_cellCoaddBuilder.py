@@ -234,7 +234,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
 
         # Run the (warp and) coaddition code
         multipleCellCoadd = self.run(
-            inputs[self.config.inputType],  # tysdfspe: ignore[attr-defined]
+            inputs[self.config.inputType],
             skyInfo=skyInfo,
             quantumDataId=quantumDataId,
         )
@@ -279,6 +279,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
             identifiers=PatchIdentifiers.from_data_id(quantumDataId),
         )
 
+        # This for loop could/should be parallelized, may be with asyncio?
         for cellInfo in patchInfo:
             # Select calexps that completely overlap with the cell
             try:
@@ -287,8 +288,8 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
                 continue  # Exception handling is likely a relic, should be removed.
 
             if not bbox_list:
-                continue
-                # raise pipeBase.NoWorkFound("No exposures that completely overlap are found")  # noqa: W505
+                continue  # We should raise exception here, since the task would fail anyway eventually.
+
             scc_inputs = {
                 ObservationIdentifiers.from_data_id(handle.ref.dataId): (handle, bbox)
                 for handle, bbox in zip(expList, bbox_list)
