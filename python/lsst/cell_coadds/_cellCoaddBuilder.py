@@ -159,14 +159,7 @@ class MultipleCellsCoaddBuilderConnections(
 class MultipleCellsCoaddBuilderConfig(
     pipeBase.PipelineTaskConfig, pipelineConnections=MultipleCellsCoaddBuilderConnections
 ):
-    """Configuration parameters for the `MultipleCellsCoaddTask`."""
-
-    # This config field is unused and should be utilized in DM-
-    cellIndices: pexConfig.ListField[int] = pexConfig.ListField(
-        dtype=int,
-        doc="Cells to coadd; if set to an empty list, all cells are processed",
-        default=[],
-    )
+    """Configuration parameters for the `MultipleCellsCoaddBuilderTask`."""
 
     inputType = pexConfig.ChoiceField(
         doc="Type of input dataset",
