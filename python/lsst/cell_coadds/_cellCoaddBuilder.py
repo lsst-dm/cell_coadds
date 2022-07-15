@@ -52,7 +52,7 @@ __all__ = (
 class SingleCellCoaddBuilderConfig(pexConfig.Config):
     """Configuration for a single-cell coadd builder."""
 
-    psf_dimensions = pexConfig.Field(  # type: ignore[var-annotated]
+    psf_dimensions: pexConfig.Field[int] = pexConfig.Field(
         doc="Dimensions of the PSF image",
         dtype=int,
         default=41,
@@ -162,7 +162,7 @@ class MultipleCellsCoaddBuilderConfig(
     """Configuration parameters for the `MultipleCellsCoaddTask`."""
 
     # This config field is unused and should be utilized in DM-
-    cellIndices = pexConfig.ListField(  # type: ignore[var-annotated]
+    cellIndices: pexConfig.ListField[int] = pexConfig.ListField(
         dtype=int,
         doc="Cells to coadd; if set to an empty list, all cells are processed",
         default=[],
@@ -175,7 +175,7 @@ class MultipleCellsCoaddBuilderConfig(
         default="calexps",
     )
 
-    psf_dimensions = pexConfig.Field(  # type: ignore[var-annotated]
+    psf_dimensions: pexConfig.Field = pexConfig.Field(
         doc="Dimensions of the PSF image",
         dtype=int,
         default=41,
@@ -221,6 +221,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
         outputRefs: pipeBase.OutputQuantizedConnection,
     ) -> MultipleCellCoadd:
         # Docstring inherited.
+        self.config: MultipleCellsCoaddBuilderConfig
         inputs: dict = butlerQC.get(inputRefs)
         skyMap = inputs.pop("skyMap")  # skyInfo below will contain this skyMap
         # Ideally, we should do this check early on.
@@ -240,7 +241,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
 
         # Run the (warp and) coaddition code
         multipleCellCoadd = self.run(
-            inputs[self.config.inputType],  # type: ignore[attr-defined]
+            inputs[self.config.inputType],  # tysdfspe: ignore[attr-defined]
             skyInfo=skyInfo,
             quantumDataId=quantumDataId,
         )
@@ -339,8 +340,8 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
             inner_bbox=inner_bbox,
             common=common,
             psf_image_size=lsst.geom.Extent2I(
-                self.config.psf_dimensions,  # type: ignore[attr-defined]
-                self.config.psf_dimensions,  # type: ignore[attr-defined]
+                self.config.psf_dimensions,
+                self.config.psf_dimensions,
             ),
         )
         return _mCellCoadd
