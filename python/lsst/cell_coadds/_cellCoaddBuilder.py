@@ -34,7 +34,7 @@ from lsst.daf.butler import DataCoordinate, DeferredDatasetHandle
 from lsst.pipe.tasks.coaddBase import makeSkyInfo
 from lsst.skymap import CellInfo, PatchInfo
 
-from ._cell_coadds import GridContainerBuilder, UniformGrid
+from ._cell_coadds import UniformGrid
 from ._common_components import CoaddUnits, CommonComponents
 from ._identifiers import CellIdentifiers, GridIdentifiers, ObservationIdentifiers, PatchIdentifiers
 from ._multiple_cell_coadd import MultipleCellCoadd
@@ -315,22 +315,16 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
             )
             cellCoadds.append(cellCoadd)
 
-        inner_bbox = None  # Placeholder for now
-        innerBBox = patchInfo.inner_bbox.dilatedBy(cellInfo.inner_bbox.getDimensions())  # dilatedBy is HACK
-        # grid = UniformGrid(cellInfo.inner_bbox, cellInfo.inner_bbox.getDimensions())  # noqa: W505
-        grid = UniformGrid(innerBBox, innerBBox.getDimensions())
-        builder: GridContainerBuilder = GridContainerBuilder(grid.shape)  # noqa: F841
-        # import pdb; pdb.set_trace()
-        # builder[Index2D(x=0, y=0)] = cellCoadd
-        # _mCellCoadd = builder.finish()
-        # return _mCellCoadd
-        # innerBBox = skyInfo.patchInfo.inner_bbox.dilatedBy(cellInfo.inner_bbox.getDimensions())  # dilatedBy is HACK  # noqa: W505, E501
-        grid = UniformGrid(innerBBox, cellInfo.inner_bbox.getDimensions())  # Original, outer-> inner
+        # grid has no notion about border or inner/outer boundaries.
+        # So we have to clip the outermost border when constructing the grid.
+        grid_bbox = patchInfo.outer_bbox.erodedBy(patchInfo.getCellBorder())
+        grid = UniformGrid(grid_bbox, patchInfo.getCellInnerDimensions())
+
         _mCellCoadd = MultipleCellCoadd(
             cellCoadds,
             grid=grid,
             outer_cell_size=cellInfo.outer_bbox.getDimensions(),
-            inner_bbox=inner_bbox,
+            inner_bbox=None,
             common=common,
             psf_image_size=lsst.geom.Extent2I(
                 self.config.psf_dimensions,
