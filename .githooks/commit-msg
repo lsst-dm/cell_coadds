@@ -21,7 +21,7 @@ then
 fi
 
 # Check that the first line does not end with a period
-if [[ $header =~ \.$ ]]
+if [[ $header =~ \.\s*$ ]]
 then
     echo "[ERROR] Commit message header ends with a period: $header ($i)"
 fi
@@ -29,7 +29,7 @@ fi
 # Chech that there are no trailing whitespaces in the header
 if [[ $header =~ \s$ ]]
 then
-    echo "[ERROR] Commit message header ends with a whitespace: $header ($i)"
+    echo "[WARNING] Commit message header ends with a whitespace: $header ($i)"
 fi
 
 # Warn if there is and or & in the commit message header
