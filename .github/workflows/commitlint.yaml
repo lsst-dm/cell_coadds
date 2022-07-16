@@ -1,0 +1,14 @@
+name: test
+
+on:
+  push: null
+
+jobs:
+  commit_msg:
+    name: commit_msg
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Run commit message checks
+        shell: bash -l {0}
+        run: |
+          ./commit-msg-check.sh
