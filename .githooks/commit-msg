@@ -3,9 +3,8 @@
 # Source: https://auscunningham.medium.com/enforcing-git-commit-message-style-b86a45380b0f
 # Source: https://git-scm.com/book/en/v2/Customizing-Git-An-Example-Git-Enforced-Policy
 
-commit_hash=${1-HEAD}
 
-gitmessage=`git cat-file commit HEAD | sed '1,/^$/d'`
+gitmessage=`cat $1`
 header=`echo "$gitmessage" | head -n 1`
 echo "Checking " $gitmessage
 
