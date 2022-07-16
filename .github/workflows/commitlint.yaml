@@ -18,7 +18,8 @@ jobs:
           for i in `git rev-list $currentbranch...origin/main`
           do
             echo $i
-            gitmessage=`git cat-file commit "$i" | sed '1,/^$/d'`
-            echo $gitmessage | .githooks/commit-msg
-            echo $gitmessage
+            git cat-file commit $i | sed '1,/^$/d' > .COMMIT_EDITMSG
+            .githooks/commit-msg .COMMIT_EDITMSG
+            cat .COMMIT_EDITMSG
+            rm .COMMIT_EDITMSG
           done
