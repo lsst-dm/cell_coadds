@@ -46,6 +46,7 @@ __all__ = (
     "MultipleCellsCoaddBuilderTask",
     "SingleCellCoaddBuilderConfig",
     "SingleCellCoaddBuilderTask",
+    "singleCellCoaddBuilderRegistry",
 )
 
 
@@ -175,9 +176,8 @@ class MultipleCellsCoaddBuilderConfig(
     )
 
     singleCellCoaddBuilder = singleCellCoaddBuilderRegistry.makeField(
-        doc="Coaddition algorithm",
-        default="sccBuilder",
-        optional=True,
+        doc="Coaddition algorithm to use. See `SingleCellCoaddBuilderTask` for details",
+        optional=False,
     )
 
 
