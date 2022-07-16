@@ -8,7 +8,17 @@ jobs:
     name: commit_msg
     runs-on: "ubuntu-latest"
     steps:
+      - uses: actions/checkout@v3
+
       - name: Run commit message checks
         shell: bash -l {0}
         run: |
-          ./commit-msg-check.sh
+          echo $(git branch)
+          currentbranch=`git branch | grep \* | cut -d ' ' -f2`
+          git fetch
+          for i in `git rev-list $currentbranch...origin/main`
+          do
+            echo $i
+            gitmessage=`git cat-file commit "$i" | sed '1,/^$/d'`
+            echo $gitmessage | .githooks/commit-msg
+          done
