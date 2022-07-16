@@ -38,11 +38,10 @@ then
     echo "[WARNING] Commit message header contains an ampersand: $header ($i)"
 fi
 
-# Check that the second line is empty (or non-existent)
-if [ "$(echo "$gitmessage" | head -n 2 | tail -n 1)" != "" ]
+# # Check that the second line is empty (or non-existent)
+if [[ `wc -l < $1` -gt 1 && "$(echo $gitmessage | head -n 2 | tail -n 1)" != "" ]]
 then
-    echo "[ERROR] Commit message has a second line: $header ($i)"
-    exit 0
+    echo "[ERROR] Commit message has a second non-empty line: $header ($i)"
 fi
 
 # Fetch the body of the commit message
