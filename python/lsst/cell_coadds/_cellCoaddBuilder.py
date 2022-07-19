@@ -75,7 +75,6 @@ class SingleCellCoaddBuilderTask(pipeBase.Task, metaclass=ABCMeta):
     See also
     --------
     MultipleCellCoaddBuilderTask
-
     """
 
     ConfigClass = SingleCellCoaddBuilderConfig
@@ -238,9 +237,6 @@ class MultipleCellCoaddBuilderTask(pipeBase.PipelineTask):
             skyInfo=skyInfo,
             quantumDataId=quantumDataId,
         )
-        # import pickle
-        # with open("/project/kannawad/multipleCellCoadd_tract3828_patch19_bandi.pkl", "rb") as fp:  # noqa: W505, E501
-        #     multipleCellCoadd = pickle.load(fp)
 
         # Persist the results via the butler
         butlerQC.put(multipleCellCoadd, outputRefs.cellCoadd)
@@ -366,7 +362,6 @@ class MultipleCellCoaddBuilderTask(pipeBase.PipelineTask):
         for exp in explist:
             calexp_bbox = exp.get(component="bbox")
             calexp_wcs = exp.get(component="wcs")
-            # TODO: Use makeSkyPolygonFromBBox function
             calexp_corners = [
                 calexp_wcs.pixelToSky(corner.x, corner.y) for corner in calexp_bbox.getCorners()
             ]
