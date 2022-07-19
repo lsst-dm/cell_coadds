@@ -41,9 +41,9 @@ from ._multiple_cell_coadd import MultipleCellCoadd
 from ._single_cell_coadd import SingleCellCoadd
 
 __all__ = (
-    "MultipleCellsCoaddBuilderConfig",
-    "MultipleCellsCoaddBuilderConnections",
-    "MultipleCellsCoaddBuilderTask",
+    "MultipleCellCoaddBuilderConfig",
+    "MultipleCellCoaddBuilderConnections",
+    "MultipleCellCoaddBuilderTask",
     "SingleCellCoaddBuilderConfig",
     "SingleCellCoaddBuilderTask",
     "singleCellCoaddBuilderRegistry",
@@ -125,14 +125,14 @@ class SingleCellCoaddBuilderTask(pipeBase.Task, metaclass=ABCMeta):
 singleCellCoaddBuilderRegistry = pexConfig.makeRegistry(doc="Registry of single cell coadd builders")
 
 
-class MultipleCellsCoaddBuilderConnections(
+class MultipleCellCoaddBuilderConnections(
     pipeBase.PipelineTaskConnections,
     dimensions=("tract", "patch", "band", "skymap"),
     defaultTemplates={"inputCoaddName": "deep", "outputCoaddName": "deep", "warpType": "direct"},
 ):
     # Since we defer loading of images, we could take in both calexp and
     # warps as inputs. Unless, we don't want a dependency on warps existing.
-    # The type of image will be specified in MultipleCellsCoaddConfig.
+    # The type of image will be specified in MultipleCellCoaddConfig.
     calexps = cT.Input(
         doc="Input exposures to be resampled and optionally PSF-matched onto a SkyMap projection/patch",
         name="calexp",
@@ -157,10 +157,10 @@ class MultipleCellsCoaddBuilderConnections(
     )
 
 
-class MultipleCellsCoaddBuilderConfig(
-    pipeBase.PipelineTaskConfig, pipelineConnections=MultipleCellsCoaddBuilderConnections
+class MultipleCellCoaddBuilderConfig(
+    pipeBase.PipelineTaskConfig, pipelineConnections=MultipleCellCoaddBuilderConnections
 ):
-    """Configuration parameters for the `MultipleCellsCoaddBuilderTask`."""
+    """Configuration parameters for the `MultipleCellCoaddBuilderTask`."""
 
     inputType = pexConfig.ChoiceField(
         doc="Type of input dataset",
@@ -181,7 +181,7 @@ class MultipleCellsCoaddBuilderConfig(
     )
 
 
-class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
+class MultipleCellCoaddBuilderTask(pipeBase.PipelineTask):
     """Task to build cell-based coadded images.
 
     This is the pipeline task that needs to be called from the pipeline. It
@@ -199,7 +199,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
     SingleCellCoaddBuilderTask
     """
 
-    ConfigClass = MultipleCellsCoaddBuilderConfig
+    ConfigClass = MultipleCellCoaddBuilderConfig
     _DefaultName = "multipleCellCoaddBuilder"
 
     def __init__(self, **kwargs: Any):
@@ -214,7 +214,7 @@ class MultipleCellsCoaddBuilderTask(pipeBase.PipelineTask):
         outputRefs: pipeBase.OutputQuantizedConnection,
     ) -> MultipleCellCoadd:
         # Docstring inherited.
-        self.config: MultipleCellsCoaddBuilderConfig
+        self.config: MultipleCellCoaddBuilderConfig
         inputs: dict = butlerQC.get(inputRefs)
         skyMap = inputs.pop("skyMap")  # skyInfo below will contain this skyMap
         # Ideally, we should do this check early on.
