@@ -53,7 +53,7 @@ __all__ = (
 class SingleCellCoaddBuilderConfig(pexConfig.Config):
     """Configuration for a single-cell coadd builder."""
 
-    psf_dimensions: pexConfig.Field[int] = pexConfig.Field(
+    psf_dimensions = pexConfig.Field[int](
         doc="Dimensions of the PSF image",
         dtype=int,
         default=41,
