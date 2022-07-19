@@ -21,6 +21,7 @@
 
 from . import typing_helpers
 from ._cell_coadds import *
+from ._cellCoaddBuilder import *
 from ._common_components import *
 from ._GridContainer import *
 from ._identifiers import *
